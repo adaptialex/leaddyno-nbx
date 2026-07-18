@@ -1,7 +1,8 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "e5e33fb8f08412463498ec05c0929e8d"
-application_url = "https://example.com"
+application_url = "https://leaddyno-nbx.vercel.app"
+
 embedded = true
 name = "LeadDyno Affiliate Login"
 
@@ -10,7 +11,7 @@ name = "LeadDyno Affiliate Login"
 scopes = "write_products,write_metaobjects,write_metaobject_definitions,write_app_proxy,write_app_proxy,read_customers"
 
 [app_proxy]
-url = "/affiliate-login"
+url = "https://leaddyno-nbx.vercel.app/affiliate-login"
 prefix = "apps"
 subpath = "affiliate-login"
 
@@ -50,7 +51,10 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://leaddyno-nbx.vercel.app/auth/callback"
+]
+
 
 [build]
 automatically_update_urls_on_dev = true
