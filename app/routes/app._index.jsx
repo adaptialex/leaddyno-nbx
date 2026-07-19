@@ -156,7 +156,7 @@ export default function Index() {
 
         <s-stack direction="inline" gap="base">
           <s-button
-            href={`https://${shop}/admin/online_store/navigation`}
+            href={`https://${shop}/content/menus`}
             target="_blank"
           >
             Open store navigation
