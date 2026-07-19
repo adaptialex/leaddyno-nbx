@@ -1,332 +1,211 @@
-import { useEffect } from "react";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
+import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-
-  return null;
-};
-
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-            demoInfo: metafield(namespace: "$app", key: "demo_info") {
-              jsonValue
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-          metafields: [
-            {
-              namespace: "$app",
-              key: "demo_info",
-              value: "Created by React Router Template",
-            },
-          ],
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
-  const product = responseJson.data.productCreate.product;
-  const variantId = product.variants.edges[0].node.id;
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
-  const variantResponseJson = await variantResponse.json();
-  const metaobjectResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpsertMetaobject($handle: MetaobjectHandleInput!, $values: JSON!) {
-      metaobjectUpsert(handle: $handle, values: $values) {
-        metaobject {
-          id
-          handle
-          values
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }`,
-    {
-      variables: {
-        handle: {
-          type: "$app:example",
-          handle: "demo-entry",
-        },
-        values: {
-          title: "Demo Entry",
-          description:
-            "This metaobject was created by the Shopify app template to demonstrate the metaobject API.",
-        },
-      },
-    },
-  );
-  const metaobjectResponseJson = await metaobjectResponse.json();
+  const { session } = await authenticate.admin(request);
 
   return {
-    product: responseJson.data.productCreate.product,
-    variant: variantResponseJson.data.productVariantsBulkUpdate.productVariants,
-    metaobject: metaobjectResponseJson.data.metaobjectUpsert.metaobject,
+    shop: session.shop,
+    affiliateLoginUrl: `https://${session.shop}/apps/affiliate-login`,
+    configuration: {
+      leadDynoKey: Boolean(process.env.LEADDYNO_PRIVATE_KEY),
+      customerLoginUrl: Boolean(process.env.CUSTOMER_LOGIN_URL),
+      fallbackUrl: Boolean(process.env.NOT_AN_AFFILIATE_URL),
+    },
   };
 };
 
-export default function Index() {
-  const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+function StatusBadge({ ready }) {
+  return (
+    <s-badge tone={ready ? "success" : "critical"}>
+      {ready ? "Ready" : "Action required"}
+    </s-badge>
+  );
+}
 
-  useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
-    }
-  }, [fetcher.data?.product?.id, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+export default function Index() {
+  const { shop, affiliateLoginUrl, configuration } = useLoaderData();
+
+  const configuredCount = Object.values(configuration).filter(Boolean).length;
+  const isReady = configuredCount === 3;
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
+    <s-page heading="LeadDyno Affiliate Login">
+      <s-button
+        slot="primary-action"
+        href={affiliateLoginUrl}
+        target="_blank"
+      >
+        Test affiliate login
       </s-button>
 
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
+      <s-section>
+        <s-stack direction="block" gap="base">
+          <s-stack direction="inline" gap="base" alignItems="center">
+            <s-heading>
+              Affiliate dashboard access for your customers
+            </s-heading>
+
+            <StatusBadge ready={isReady} />
+          </s-stack>
+
+          <s-paragraph>
+            This app securely matches a signed-in Shopify customer to their
+            LeadDyno affiliate account and sends them directly to their
+            affiliate dashboard.
+          </s-paragraph>
+
+          <s-paragraph>
+            Storefront URL:{" "}
+            <s-link href={affiliateLoginUrl} target="_blank">
+              {affiliateLoginUrl}
+            </s-link>
+          </s-paragraph>
+        </s-stack>
       </s-section>
-      <s-section heading="Get started with products">
+
+      <s-section heading="How it works">
+        <s-ordered-list>
+          <s-list-item>
+            A customer opens the affiliate login link in your storefront.
+          </s-list-item>
+
+          <s-list-item>
+            Shopify verifies the request and identifies the signed-in customer.
+          </s-list-item>
+
+          <s-list-item>
+            The app finds the customer&apos;s LeadDyno affiliate account by
+            email.
+          </s-list-item>
+
+          <s-list-item>
+            The customer is redirected to their LeadDyno dashboard.
+          </s-list-item>
+        </s-ordered-list>
+      </s-section>
+
+      <s-section heading="Configuration status">
+        <s-stack direction="block" gap="base">
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-stack
+              direction="inline"
+              gap="base"
+              alignItems="center"
+              justifyContent="space-between"
+            >
+              <s-stack direction="block" gap="small-200">
+                <s-heading>LeadDyno API key</s-heading>
+
+                <s-paragraph>
+                  Used server-side to find an affiliate by customer email.
+                </s-paragraph>
+              </s-stack>
+
+              <StatusBadge ready={configuration.leadDynoKey} />
+            </s-stack>
+          </s-box>
+
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-stack
+              direction="inline"
+              gap="base"
+              alignItems="center"
+              justifyContent="space-between"
+            >
+              <s-stack direction="block" gap="small-200">
+                <s-heading>Customer login redirect</s-heading>
+
+                <s-paragraph>
+                  Where signed-out customers are sent before trying again.
+                </s-paragraph>
+              </s-stack>
+
+              <StatusBadge ready={configuration.customerLoginUrl} />
+            </s-stack>
+          </s-box>
+
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-stack
+              direction="inline"
+              gap="base"
+              alignItems="center"
+              justifyContent="space-between"
+            >
+              <s-stack direction="block" gap="small-200">
+                <s-heading>Not-an-affiliate fallback</s-heading>
+
+                <s-paragraph>
+                  Where customers are sent when no matching affiliate is found.
+                </s-paragraph>
+              </s-stack>
+
+              <StatusBadge ready={configuration.fallbackUrl} />
+            </s-stack>
+          </s-box>
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Add the login link to your store">
         <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references. Includes a product{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data/metafields"
-            target="_blank"
-          >
-            metafield
-          </s-link>{" "}
-          and{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data/metaobjects"
-            target="_blank"
-          >
-            metaobject
-          </s-link>
-          .
+          Add a navigation item, account-page button, or theme link that points
+          to <s-text>/apps/affiliate-login</s-text>. Customers must be signed in
+          to Shopify for the automatic lookup to work.
         </s-paragraph>
+
         <s-stack direction="inline" gap="base">
           <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
+            href={`https://${shop}/admin/online_store/navigation`}
+            target="_blank"
           >
-            Generate a product
+            Open store navigation
           </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
+
+          <s-button
+            href={affiliateLoginUrl}
+            target="_blank"
+            variant="tertiary"
+          >
+            Open login URL
+          </s-button>
         </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre
-                  style={{
-                    margin: 0,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre
-                  style={{
-                    margin: 0,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>metaobjectUpsert mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre
-                  style={{
-                    margin: 0,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  <code>
-                    {JSON.stringify(fetcher.data.metaobject, null, 2)}
-                  </code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
-        )}
       </s-section>
 
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Custom data: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data"
-            target="_blank"
-          >
-            Metafields &amp; metaobjects
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
+      <s-section slot="aside" heading="Connection summary">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            <s-text>Store</s-text>
+            <br />
+            {shop}
+          </s-paragraph>
+
+          <s-paragraph>
+            <s-text>App proxy</s-text>
+            <br />
+            /apps/affiliate-login
+          </s-paragraph>
+
+          <s-paragraph>
+            <s-text>Required settings</s-text>
+            <br />
+            {configuredCount} of 3 configured
+          </s-paragraph>
+        </s-stack>
       </s-section>
 
-      <s-section slot="aside" heading="Next steps">
+      <s-section slot="aside" heading="Expected outcomes">
         <s-unordered-list>
           <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
+            Signed-in affiliate: LeadDyno dashboard
           </s-list-item>
+
           <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
+            Signed-out customer: Shopify login page
+          </s-list-item>
+
+          <s-list-item>
+            No affiliate match: configured fallback page
           </s-list-item>
         </s-unordered-list>
       </s-section>
@@ -334,6 +213,4 @@ export default function Index() {
   );
 }
 
-export const headers = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
+export const headers = (headersArgs) => boundary.headers(headersArgs);
